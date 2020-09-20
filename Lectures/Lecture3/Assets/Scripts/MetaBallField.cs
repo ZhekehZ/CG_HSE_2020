@@ -6,9 +6,9 @@ using UnityEngine;
 public class MetaBallField
 {
     public Transform[] Balls = new Transform[0];
-    public float BallRadius = 1;
+    public float BallRadius = 0.1f;
 
-    private Vector3[] _ballPositions;
+    private Vector3[] _ballPositions = new Vector3[3];
     
     /// <summary>
     /// Call Field.Update to react to ball position and parameters in run-time.
@@ -17,7 +17,17 @@ public class MetaBallField
     {
         _ballPositions = Balls.Select(x => x.position).ToArray();
     }
-    
+
+    public Vector3 getCentre() 
+    {
+        Vector3 sum = new Vector3(0, 0, 0);
+        foreach (var ci in _ballPositions)
+        {
+            sum += ci;
+        }
+        return sum / _ballPositions.Length;
+    }
+
     /// <summary>
     /// Calculate scalar field value at point
     /// </summary>
