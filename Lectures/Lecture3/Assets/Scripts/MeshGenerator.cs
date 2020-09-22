@@ -4,146 +4,91 @@ using System.Collections.Specialized;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter))]
 public class MeshGenerator : MonoBehaviour
 {
-    public MetaBallField Field = new MetaBallField();
+    public Transform[] Balls = new Transform[0];
+    public float BallRadius = 1.0f;
+    public ComputeShader computeShader;
+
+    private const int W = 24, H = 24, D = 24;
+    private const int TOTAL_CUBES = W * H * D;
 
     private MeshFilter _filter;
     private Mesh _mesh;
 
-    private List<Vector3> vertices = new List<Vector3>();
-    private List<Vector3> normals = new List<Vector3>();
-    private List<int> indices = new List<int>();
+    private struct Point {
+        Vector3 position, normal;
+    };
 
-    private const int H = 50, W = 50, D = 50;
-    private const float cubeSize = 0.2f;
-    private float[,,] grid = new float[W, H, D];
-    private Vector3 dx = new Vector3(0.1f, 0, 0);
-    private Vector3 dy = new Vector3(0, 0, 0.1f);
-    private Vector3 dz = new Vector3(0, 0.1f, 0);
+    private Point[] vertices = new Point[TOTAL_CUBES * 5 * 3];
+    private int[] indices = new int[TOTAL_CUBES * 5 * 3];
 
-    /// <summary>
-    /// Executed by Unity upon object initialization. <see cref="https://docs.unity3d.com/Manual/ExecutionOrder.html"/>
-    /// </summary>
+    private int _kernel;
+
+    private ComputeBuffer _vertex_buffer;
+    private ComputeBuffer counter;
+
+    private ComputeBuffer cubeVertices;
+    private ComputeBuffer cubeEdges;
+    private ComputeBuffer trianglesCount;
+    private ComputeBuffer trianglesIndices;
+
+    private VertexAttributeDescriptor[] layout = new[]
+        {
+            new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
+            new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3)
+        };
+
     private void Awake()
     {
-        // Getting a component, responsible for storing the mesh
         _filter = GetComponent<MeshFilter>();
-
-        // instantiating the mesh
         _mesh = _filter.mesh = new Mesh();
-
-        // Just a little optimization, telling unity that the mesh is going to be updated frequently
         _mesh.MarkDynamic();
 
+        _vertex_buffer = new ComputeBuffer(TOTAL_CUBES * 5, 3 * 3 * 2 * sizeof(float), ComputeBufferType.Append);
+        counter = new ComputeBuffer (1, sizeof(int), ComputeBufferType.Raw);
+
+        _kernel = computeShader.FindKernel("BuildShape");
+
+        computeShader.SetBuffer(_kernel, "vertices", _vertex_buffer);
+
+        for (int i = 0; i < indices.Length; ++i) indices[i] = i;
     }
 
-    private float[] F = new float[8];
-
-    private Vector3 getPoint(int e) {
-        int a = MarchingCubes.Tables._cubeEdges[e][0];
-        int b = MarchingCubes.Tables._cubeEdges[e][1];
-
-        return (MarchingCubes.Tables._cubeVertices[a] * F[b] -
-                MarchingCubes.Tables._cubeVertices[b] * F[a]) / (F[b] - F[a]);
-    }
-
-    private Vector3 getNormal(Vector3 x)
-    {
-        Vector3 normal = new Vector3(
-            Field.F(x + dx) - Field.F(x - dx), 
-            Field.F(x + dy) - Field.F(x - dy), 
-            Field.F(x + dz) - Field.F(x - dz)
-        );
-        return Vector3.Normalize(normal);
-    }
-
-    private void processCube(Vector3 shift)
-    {
-        int idx = 0;
-        for (int i = 0; i < 8; ++i)
-        {
-            idx |= (F[i] > 0 ? 1 : 0) * (1 << i);
-        }
-
-        byte nTriangles = MarchingCubes.Tables.CaseToTrianglesCount[idx];
-
-        for (int t = 0; t < nTriangles; ++t)
-        {
-            int3 triangle = MarchingCubes.Tables.CaseToVertices[idx][t];
-
-            indices.Add(vertices.Count);
-            vertices.Add(shift + getPoint(triangle.x) * cubeSize);
-            normals.Add(getNormal(vertices.Last()));
-
-            indices.Add(vertices.Count);
-            vertices.Add(shift + getPoint(triangle.y) * cubeSize);
-            normals.Add(getNormal(vertices.Last()));
-
-            indices.Add(vertices.Count);
-            vertices.Add(shift + getPoint(triangle.z) * cubeSize);
-            normals.Add(getNormal(vertices.Last()));
-        }
-    }
-
-    /// <summary>
-    /// Executed by Unity on every frame <see cref="https://docs.unity3d.com/Manual/ExecutionOrder.html"/>
-    /// You can use it to animate something in runtime.
-    /// </summary>
     private void Update()
     {
+        float cubeSize = 0.15f * BallRadius;
+        Vector3 centreShift = new Vector3(W, H, D) / 2 * cubeSize;
 
-        vertices.Clear();
-        indices.Clear();
-        normals.Clear();
+        computeShader.SetFloat("cubeSize", cubeSize);
+        computeShader.SetVector("centreShift", centreShift);
+        computeShader.SetVector("point1", Balls[0].position);
+        computeShader.SetVector("point2", Balls[1].position);
+        computeShader.SetVector("point3", Balls[2].position);
+        computeShader.SetFloat("ballRadius", BallRadius);
 
-        Field.Update();
+        _vertex_buffer.SetCounterValue(0);
+        computeShader.Dispatch(_kernel, W/8, H/8, D/8*3);
+        
+        int[] c = {0};
+        ComputeBuffer.CopyCount(_vertex_buffer, counter, 0);
+        counter.GetData(c);
+        int N = c[0] * 3;
+        _vertex_buffer.GetData(vertices);
 
-        Vector3 startPos = Field.getCentre() - new Vector3(W, H, D) * cubeSize / 2;
-
-
-        for (int i = 0; i < W; ++i)
-        {
-            for (int j = 0; j < H; ++j)
-            {
-                for (int d = 0; d < D; ++d)
-                {
-                    Vector3 point = new Vector3(i, j, d) * cubeSize + startPos; 
-                    grid[i, j, d] = Field.F(point);
-                }
-            }
-        }
-
-        for (int i = 0; i < W - 1; ++i) 
-        {
-            for (int j = 0; j < H - 1; ++j) 
-            {
-                for (int d = 0; d < D - 1; ++d) 
-                {
-                    F[0] = grid[    i,     j,     d];
-                    F[1] = grid[    i, j + 1,     d];
-                    F[2] = grid[i + 1, j + 1,     d];
-                    F[3] = grid[i + 1,     j,     d];
-                    F[4] = grid[    i,     j, d + 1];
-                    F[5] = grid[    i, j + 1, d + 1];
-                    F[6] = grid[i + 1, j + 1, d + 1];
-                    F[7] = grid[i + 1,     j, d + 1];
-
-                    Vector3 shift = new Vector3(i, j, d) * cubeSize + startPos;
-                    processCube(shift);
-                }
-            }
-        }
-
-        // Here unity automatically assumes that vertices are points and hence (x, y, z) will be represented as (x, y, z, 1) in homogenous coordinates
         _mesh.Clear();
-        _mesh.SetVertices(vertices);
-        _mesh.SetTriangles(indices, 0);
-        _mesh.SetNormals(normals);
-
-        // Upload mesh data to the GPU
+        _mesh.SetVertexBufferParams(N, layout);
+        _mesh.SetVertexBufferData(vertices, 0, 0, N);
+        _mesh.SetTriangles(indices, 0, N, 0);
         _mesh.UploadMeshData(false);
+    }
+
+    private void OnDestroy()
+    {
+        _vertex_buffer.Dispose();
+        counter.Dispose();
     }
 }

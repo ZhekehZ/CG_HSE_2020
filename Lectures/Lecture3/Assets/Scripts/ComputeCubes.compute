@@ -1,0 +1,82 @@
+﻿#pragma kernel BuildShape
+#include "Tables.compute"
+
+struct Triangle { float3 v1, n1, v2, n2, v3, n3; };
+
+AppendStructuredBuffer<Triangle> vertices;
+
+float cubeSize;
+float3 point1;
+float3 point2;
+float3 point3;
+float3 centreShift;
+float ballRadius;
+
+float F(float3 position)
+{
+    float l1 = length(point1 - position);
+    float l2 = length(point2 - position);
+    float l3 = length(point3 - position);
+
+    float f = 1 / (l1 * l1 + 1e-7) + 
+              1 / (l2 * l2 + 1e-7) + 
+              1 / (l3 * l3 + 1e-7);
+
+    f *= ballRadius * ballRadius;
+
+    return f - 1;
+}
+
+int getIndex(float3 pos) {
+    int idx = 0;
+    [unroll(8)] for (int i = 0; i < 8; ++i) {
+        idx |= int(F(pos + _cubeVertices[i] * cubeSize) > 0) * (1 << i);
+    }
+    return idx;
+}
+
+float3 getPointOnEdge(float3 cubePos, int edge) {
+    int ai = _cubeEdges[edge][0];
+    int bi = _cubeEdges[edge][1];
+
+    float3 a = cubePos + _cubeVertices[ai] * cubeSize;
+    float3 b = cubePos + _cubeVertices[bi] * cubeSize;
+    float fa = F(a), fb = F(b);
+
+    return (a * fb - b * fa) / (fb - fa);
+}
+
+float3 getNormal(float3 pos) {
+    return normalize(float3(
+        F(pos + float3(0.1f, 0, 0)) - F(pos - float3(0.1f, 0, 0)),
+        F(pos + float3(0, 0.1f, 0)) - F(pos - float3(0, 0.1f, 0)),
+        F(pos + float3(0, 0, 0.1f)) - F(pos - float3(0, 0, 0.1f))
+    ));
+}
+
+[numthreads(8, 8, 8)]
+void BuildShape (uint3 id : SV_DispatchThreadID)
+{
+    int z = id.z / 3;
+    int ball = id.z % 3;
+    
+    float3 centre = (ball == 0 ? point1 : ball == 1 ? point2 : point3) - centreShift;
+    float3 cubePos = centre + float3(id.x, id.y, z) * cubeSize;
+
+    int idx = getIndex(cubePos);
+    int nTriangles = CaseToTrianglesCount[idx];
+
+    for (int tri = 0; tri < nTriangles; ++tri) {
+        int3 triEdges = CaseToVertices[idx][tri];
+
+        Triangle t;
+        t.v1 = getPointOnEdge(cubePos, triEdges.x);
+        t.v2 = getPointOnEdge(cubePos, triEdges.y);
+        t.v3 = getPointOnEdge(cubePos, triEdges.z);
+        t.n1 = getNormal(t.v1);
+        t.n2 = getNormal(t.v2);
+        t.n3 = getNormal(t.v3);
+        vertices.Append(t);
+    }
+    
+}
