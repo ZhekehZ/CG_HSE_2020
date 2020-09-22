@@ -14,32 +14,24 @@ public class MeshGenerator : MonoBehaviour
     public ComputeShader computeShader;
 
     private const int W = 24, H = 24, D = 24;
-    private const int TOTAL_CUBES = W * H * D;
+    private const int TOTAL_CUBES = W * H * D * 3;
 
     private MeshFilter _filter;
     private Mesh _mesh;
 
-    private struct Point {
-        Vector3 position, normal;
-    };
+    private struct Point { Vector3 position, normal; };
 
     private Point[] vertices = new Point[TOTAL_CUBES * 5 * 3];
     private int[] indices = new int[TOTAL_CUBES * 5 * 3];
 
-    private int _kernel;
+    private int kernel;
 
-    private ComputeBuffer _vertex_buffer;
+    private ComputeBuffer vertex_buffer;
     private ComputeBuffer counter;
 
-    private ComputeBuffer cubeVertices;
-    private ComputeBuffer cubeEdges;
-    private ComputeBuffer trianglesCount;
-    private ComputeBuffer trianglesIndices;
-
-    private VertexAttributeDescriptor[] layout = new[]
-        {
+    private VertexAttributeDescriptor[] layout = new[] {
             new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3),
-            new VertexAttributeDescriptor(VertexAttribute.Normal, VertexAttributeFormat.Float32, 3)
+            new VertexAttributeDescriptor(VertexAttribute.Normal,   VertexAttributeFormat.Float32, 3)
         };
 
     private void Awake()
@@ -48,12 +40,12 @@ public class MeshGenerator : MonoBehaviour
         _mesh = _filter.mesh = new Mesh();
         _mesh.MarkDynamic();
 
-        _vertex_buffer = new ComputeBuffer(TOTAL_CUBES * 5, 3 * 3 * 2 * sizeof(float), ComputeBufferType.Append);
+        vertex_buffer = new ComputeBuffer(TOTAL_CUBES * 5, 3 * 3 * 2 * sizeof(float), ComputeBufferType.Append);
         counter = new ComputeBuffer (1, sizeof(int), ComputeBufferType.Raw);
 
-        _kernel = computeShader.FindKernel("BuildShape");
+        kernel = computeShader.FindKernel("BuildShape");
 
-        computeShader.SetBuffer(_kernel, "vertices", _vertex_buffer);
+        computeShader.SetBuffer(kernel, "vertices", vertex_buffer);
 
         for (int i = 0; i < indices.Length; ++i) indices[i] = i;
     }
@@ -63,21 +55,26 @@ public class MeshGenerator : MonoBehaviour
         float cubeSize = 0.15f * BallRadius;
         Vector3 centreShift = new Vector3(W, H, D) / 2 * cubeSize;
 
+        Vector3[] positions = Balls.Select(x => 
+                                new Vector3(Mathf.Sin(Time.time + x.position.x) * 2,
+                                            Mathf.Sin(Time.time + x.position.y) * 2,
+                                            Mathf.Sin(Time.time + x.position.z) * 2)).ToArray();
+        
         computeShader.SetFloat("cubeSize", cubeSize);
         computeShader.SetVector("centreShift", centreShift);
-        computeShader.SetVector("point1", Balls[0].position);
-        computeShader.SetVector("point2", Balls[1].position);
-        computeShader.SetVector("point3", Balls[2].position);
+        computeShader.SetVector("point1", positions[0]);
+        computeShader.SetVector("point2", positions[1]);
+        computeShader.SetVector("point3", positions[2]);
         computeShader.SetFloat("ballRadius", BallRadius);
 
-        _vertex_buffer.SetCounterValue(0);
-        computeShader.Dispatch(_kernel, W/8, H/8, D/8*3);
+        vertex_buffer.SetCounterValue(0);
+        computeShader.Dispatch(kernel, W/8, H/8, D/8*3);
         
         int[] c = {0};
-        ComputeBuffer.CopyCount(_vertex_buffer, counter, 0);
+        ComputeBuffer.CopyCount(vertex_buffer, counter, 0);
         counter.GetData(c);
         int N = c[0] * 3;
-        _vertex_buffer.GetData(vertices);
+        vertex_buffer.GetData(vertices);
 
         _mesh.Clear();
         _mesh.SetVertexBufferParams(N, layout);
@@ -88,7 +85,7 @@ public class MeshGenerator : MonoBehaviour
 
     private void OnDestroy()
     {
-        _vertex_buffer.Dispose();
+        vertex_buffer.Dispose();
         counter.Dispose();
     }
 }
