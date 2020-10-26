@@ -1,4 +1,4 @@
-﻿Shader "0_Custom/Cubemap"
+﻿    Shader "0_Custom/Cubemap"
 {
     Properties
     {
@@ -25,6 +25,7 @@
             struct appdata
             {
                 float4 vertex : POSITION;
+                fixed3 tangent : TANGENT;
                 fixed3 normal : NORMAL;
             };
 
@@ -33,6 +34,7 @@
                 float4 clip : SV_POSITION;
                 float4 pos : TEXCOORD1;
                 fixed3 normal : NORMAL;
+                fixed3 tangent : TANGENT;
             };
 
             float4 _BaseColor;
@@ -47,6 +49,7 @@
                 o.clip = UnityObjectToClipPos(v.vertex);
                 o.pos = mul(UNITY_MATRIX_M, v.vertex);
                 o.normal = UnityObjectToWorldNormal(v.normal);
+                o.tangent = UnityObjectToWorldNormal(v.tangent);
                 return o;
             }
 
@@ -89,17 +92,33 @@
                 return a2 / (UNITY_PI * Sqr(NDotH2 * (a2 - 1) + 1));
             }
 
+            float3 Montecarlo(float3 w, float3 normal, float3 tangent) {
+                int N = 3000;
+                float3 v = cross(normal, tangent);      
+
+                float4 light = 0;
+                for (int i = 0; i < N; ++i) {
+                    float cosTheta = Random(i);
+                    float sinTheta = sqrt(1 - cosTheta * cosTheta);
+                    float alpha = Random(i + N) * UNITY_PI * 2;
+                    float3 w1 = cosTheta * normal + sinTheta * (cos(alpha) * tangent + sin(alpha) * v);
+                    light += float4(SampleColor(w1), 1) * GetSpecularBRDF(w, w1, normal) * cosTheta;
+                }
+                
+                return light.xyz / light.w;
+            }
+
             fixed4 frag (v2f i) : SV_Target
             {
                 float3 normal = normalize(i.normal);
+                float3 tangent = normalize(i.tangent);
                 
                 float3 viewDirection = normalize(_WorldSpaceCameraPos - i.pos.xyz);
                 
                 // Replace this specular calculation by Montecarlo.
                 // Normalize the BRDF in such a way, that integral over a hemysphere of (BRDF * dot(normal, w')) == 1
                 // TIP: use Random(i) to get a pseudo-random value.
-                float3 viewRefl = reflect(-viewDirection.xyz, normal);
-                float3 specular = SampleColor(viewRefl);
+                float3 specular = Montecarlo(viewDirection.xyz, normal, tangent);
                 
                 return fixed4(specular, 1);
             }
