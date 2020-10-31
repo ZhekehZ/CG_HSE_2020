@@ -74,9 +74,9 @@ void ComputeHarmonics(uint id : SV_DispatchThreadID)
         L22  += color * (x * x - y * y); 
     }    
 
-    L1m1 *= 2.0;    L11  *= 2.0f;     L10  *= 2.0f;
+    L1m1 *= 2.0f;   L11  *= 2.0f;     L10  *= 2.0f;
     L2m2 *= 3.75f;  L2m1 *= 3.75f;    L21  *= 3.75f;
-    L20  *= 0.625f; L22  *= 0.234375f;
+    L20  *= 0.625f; L22  *= 0.9375f;
 
     // See SH.shader for more details
     float4 results[7] = {
