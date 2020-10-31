@@ -49,19 +49,46 @@ float3 SampleColor(float3 direction)
 void ComputeHarmonics(uint id : SV_DispatchThreadID)
 {
     const int THREADS = 1024;
-    const int SAMPLES = 100;
+    const int SAMPLES = 5000;
     
+    float3 L00, L1m1, L11, L10, L2m2, L2m1, L21, L20, L22;
+
+    for (int i = 0; i < SAMPLES; ++i) {                                                
+        float cosTheta = Random(2 * i) * 2 - 1;                                   
+        float sinTheta = sqrt(1 - cosTheta * cosTheta);                           
+        float alpha = Random(2 * i + 1) * TWO_PI;                                 
+        
+        float x = cos(alpha) * sinTheta;                                          
+        float y = sin(alpha) * sinTheta;                                          
+        float z = cosTheta;       
+        float3 color = SampleColor(float3(x, y, z));       
+        
+        L00  += color;
+        L1m1 += color * y;
+        L11  += color * x;
+        L10  += color * z;  
+        L2m2 += color * y * x; 
+        L2m1 += color * y * z; 
+        L21  += color * x * z; 
+        L20  += color * (3 * z * z - 1); 
+        L22  += color * (x * x - y * y); 
+    }    
+
+    L1m1 *= 2.0f;   L11  *= 2.0f;     L10  *= 2.0f;
+    L2m2 *= 3.75f;  L2m1 *= 3.75f;    L21  *= 3.75f;
+    L20  *= 0.625f; L22  *= 0.9375f;
+
     // See SH.shader for more details
     float4 results[7] = {
-        float4(0, 0, 0, 0), // SH_0_1_r
-        float4(0, 0, 0, 0), // SH_0_1_g
-        float4(0, 0, 0, 0), // SH_0_1_b
+        float4(L11.r, L1m1.r, L10.r, L00.r) / SAMPLES, // SH_0_1_r
+        float4(L11.g, L1m1.g, L10.g, L00.g) / SAMPLES, // SH_0_1_g
+        float4(L11.b, L1m1.b, L10.b, L00.b) / SAMPLES, // SH_0_1_b
         
-        float4(0, 0, 0, 0), // SH_2_r
-        float4(0, 0, 0, 0), // SH_2_g
-        float4(0, 0, 0, 0), // SH_2_b
+        float4(L2m2.r, L2m1.r, L21.r, L20.r) / SAMPLES, // SH_2_r
+        float4(L2m2.g, L2m1.g, L21.g, L20.g) / SAMPLES, // SH_2_g
+        float4(L2m2.b, L2m1.b, L21.b, L20.b) / SAMPLES, // SH_2_b
         
-        float4(0, 0, 0, 0), // SH_2_rgb
+        float4(L22, 0) / SAMPLES, // SH_2_rgb
     };
     
     // Populate results buffer using monte-carlo method.
