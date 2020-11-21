@@ -77,8 +77,8 @@ Material:
     - _Glossiness: 0.5
     - _GlossyReflections: 1
     - _MODE: 0
-    - _MaxHeight: 0.00599
-    - _MaxStepCount: 128
+    - _MaxHeight: 0.011
+    - _MaxStepCount: 129.14
     - _Metallic: 0
     - _Mode: 0
     - _OcclusionStrength: 1
