@@ -75,12 +75,10 @@
     {
         float2 uv = i.uv;
         
-        float3 worldViewDir = normalize(UnityWorldSpaceViewDir(i.worldPos));
+        float3 worldViewDir = normalize(i.worldPos.xyz - _WorldSpaceCameraPos.xyz);
 
-        float3x3 toTangentBasis = float3x3(i.T, i.B, i.N);
-        float3x3 fromTangentBasis = transpose(toTangentBasis);
-        
-        float3 tangentViewDir = mul(toTangentBasis, worldViewDir);
+        float3x3 TBN = float3x3(i.T, i.B, i.N);
+        float3 tangentViewDir = mul(TBN, worldViewDir);
 #if MODE_BUMP
         float height = (1 - tex2D(_HeightMap, uv).x) *  _MaxHeight;
         uv -= tangentViewDir.xy / tangentViewDir.z * height;
@@ -92,7 +90,7 @@
         float3 shift1, shift2;
 
         for (int j = 0, stop = 0; j < _MaxStepCount; ++j) {
-            float3 shift = tangentViewDir * _StepLength * j;
+            float3 shift = -tangentViewDir * _StepLength * j;
             float height = tex2D(_HeightMap, uv + shift.xy).x * _MaxHeight;
             if (!stop) {
                 shift2 = shift1; shift1 = shift;
@@ -106,13 +104,13 @@
 #endif
 
         float3 worldLightDir = normalize(_WorldSpaceLightPos0.xyz);
-        float3 tangentLightDir = mul(toTangentBasis, worldLightDir);
+        float3 tangentLightDir = mul(TBN, worldLightDir);
         float shadow = 0;
 #if MODE_POM_SHADOWS
         float height0 = _MaxHeight - depthDif;
         for (int j = 1; j <= _MaxStepCount; ++j) {
             float3 shift = tangentLightDir * _StepLength * j;
-            float db = tex2D(_HeightMap, uv + shift.xy).r * _MaxHeight;
+            float db = tex2D(_HeightMap, uv - shift.yx).r * _MaxHeight;
             float delta = db - (height0 + shift.z);
             shadow += max(0, delta) / (db + (height0 + shift.z)); // a La soft shadows
         }
@@ -121,7 +119,7 @@
         half3 normal = i.N;
 #if !MODE_PLAIN
         // Implement Normal Mapping
-        normal = mul(fromTangentBasis, UnpackNormal(tex2D(_NormalMap, uv)));
+        normal = mul(UnpackNormal(tex2D(_NormalMap, uv)), TBN);
 #endif
 
         // Diffuse lightning
